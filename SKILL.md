@@ -1,7 +1,7 @@
 ---
 name: hive-sql-to-csv-skill
-description: 在 Hive (HiveServer2) 上执行一段 SQL，把查询结果导出成 CSV 文件。当用户说「在 hive 里跑这个 sql / 执行这段 hive sql / 跑一下这个查询」「把查询结果存成 csv / 导出成 csv / 拉成 csv」「跑一下这个 .sql 文件把结果导出」「连 hive 查一下这张表并保存结果」「把这段 sql 存成文件 / 存下来下次再跑」「我之前存的那个查询再跑一遍」时使用。支持直接传 SQL 字符串、传 .sql 文件路径、传已归档 SQL 的名字、或复杂脚本（先 set 参数 / 建临时表、最后一条 select 出结果）。用户贴来的 SQL 会自动归档成 .sql 文件便于复用和复现。结果用游标流式写盘，百万行以上也不撑内存；CSV 带表头、纯 UTF-8、逗号分隔。连接信息从 config.yml 读取（LDAP 认证）。不负责解析字段血缘（那是 sql-field-lineage），也不负责扫描文件里出现了哪些字段（那是 field-search）。
-version: 1.2.0
+description: 在 Hive (HiveServer2) 上执行一段 SQL，把查询结果导出成 CSV 文件。当用户说「在 hive 里跑这个 sql / 执行这段 hive sql / 跑一下这个查询」「把查询结果存成 csv / 导出成 csv / 拉成 csv」「跑一下这个 .sql 文件把结果导出」「连 hive 查一下这张表并保存结果」「把这段 sql 存成文件 / 存下来下次再跑」「我之前存的那个查询再跑一遍」时使用；用户说「安装并配置 hive-sql-to-csv-skill / 配置 hive 连接 / 初始化 config.yml / 第一次使用前设置 hive 账号密码 / 配一下 hive 的 host 和密码」时也使用：跑 check_config.py 检测缺项，当场向用户问齐 host/username/password 并写入 config.yml（chmod 600），安装与配置必须在同一轮对话内完成，不能只丢一句"首次使用前请自行配置"就收尾。支持直接传 SQL 字符串、传 .sql 文件路径、传已归档 SQL 的名字、或复杂脚本（先 set 参数 / 建临时表、最后一条 select 出结果）。用户贴来的 SQL 会自动归档成 .sql 文件便于复用和复现。结果用游标流式写盘，百万行以上也不撑内存；CSV 带表头、纯 UTF-8、逗号分隔。连接信息从 config.yml 读取（LDAP 认证）。不负责解析字段血缘（那是 sql-field-lineage），也不负责扫描文件里出现了哪些字段（那是 field-search）。
+version: 1.3.0
 ---
 
 # hive-sql-to-csv-skill
@@ -20,7 +20,22 @@ SQL 有两种来源，都走同一个脚本：
 ## Agent 一键安装与配置引导
 
 当 Agent（Claude / Trae.cn）被要求"**安装并配置本 skill**"或"先把 hive-sql-to-csv-skill 装上"时，
-按下面 6 步走。整个流程**对 Agent 是自洽的**——不需要再去翻文档，也不需要用户手把手指导。
+按下面 7 步走。整个流程**对 Agent 是自洽的**——不需要再去翻文档，也不需要用户手把手指导。
+
+> **硬性规则（最重要）**
+>
+> 1. **安装与配置必须在同一轮对话内完成**。装完文件后，必须继续跑 `check_config.py`、
+>    当场向用户问齐缺失的连接字段、写好 `config.yml`（chmod 600）、复验到 `ready=true`。
+>    **禁止**用"首次使用前请参考 config.example.yml 自行配置"这类话收尾——那等于没做完。
+> 2. 用户给不出凭据时，可以停下等他提供，但要明确告诉他"装好的 skill 在你给出 host/账号/密码前无法使用"，
+>    而不是默默结束。
+> 3. **通用安装器兜底**：Trae/Claude 的通用 skill 安装器可能只复制文件、不执行本仓库的
+>    `install.sh`（表现为安装报告里没有 `---BEGIN CONFIG JSON---` 段）。这种情况下，Agent 在安装报告后
+>    **必须自己从第 2 步接着做**：定位安装目录、跑 `check_config.py`、问用户、写配置。
+> 4. 另一条路：如果用户就在终端旁边，也可以直接让他跑
+>    `python3 "$SK/scripts/setup_config.py"`（或在终端跑 `sh install.sh`，交互式 TTY 会自动弹向导），
+>    向导会逐项提问并写好 config.yml。Agent 自己执行 Shell 时**不要**跑向导（子进程没有 TTY 会直接退出码 4），
+>    Agent 应在对话里问用户、用 Write 写文件。
 
 ### 1. 一键安装到目标环境
 
@@ -41,6 +56,10 @@ Agent 按这两个标记截取即可。
 ```bash
 sh <REPO>/install.sh --non-interactive      # Agent 模式：装完输出 JSON
 ```
+
+> 注意：`install.sh` 在**真人终端**（交互式 TTY）里跑、且配置缺失时，会自动进入
+> `scripts/setup_config.py` 向导逐项提问；Agent 经 Shell 调起时 stdin 不是 TTY，不会挂起，
+> 会退化为输出动作清单 / JSON——此时配置由 Agent 在对话里完成（第 3 步）。
 
 安装位置（任选其一会被装到）：
 

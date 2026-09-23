@@ -10,6 +10,13 @@
 #   sh install.sh --yes        # 同 --non-interactive
 #   sh install.sh --json       # 同 --non-interactive（显式指定 JSON 输出）
 #
+# 配置向导（仅交互模式生效）:
+#   装完若 config.yml 缺失/不完整，且当前是交互式 TTY，自动进入 setup_config.py
+#   逐项向导（host/port/username/password/database/auth），写完 chmod 600 并复验。
+#   sh install.sh --no-configure  # 装完不进向导，只打印动作清单
+#   sh install.sh --configure     # 已就绪也强制重走向导（覆盖 config.yml）
+#   非 TTY（脚本/管道/Agent 子进程）不会挂起：自动退化为打印动作清单。
+#
 # 安装布局:
 #   Trae-CN     → 整目录装入 ~/.trae-cn/skills/hive-sql-to-csv-skill/（项目级为 <项目>/.trae/skills/）
 #   Claude Code → 整目录装入 ~/.claude/skills/hive-sql-to-csv-skill/（项目级为 <项目>/.claude/skills/）
@@ -27,6 +34,8 @@ NAME="hive-sql-to-csv-skill"
 ONLY=""
 MODE="global"
 JSON_MODE=0
+NO_CONFIGURE=0
+FORCE_CONFIGURE=0
 
 for arg in "$@"; do
   case "$arg" in
@@ -34,7 +43,9 @@ for arg in "$@"; do
     --trae)    ONLY="trae" ;;
     --claude)  ONLY="claude" ;;
     --non-interactive|--yes|--json) JSON_MODE=1 ;;
-    *) echo "未知参数: $arg（支持 --project / --trae / --claude / --non-interactive / --yes / --json）" >&2; exit 2 ;;
+    --no-configure) NO_CONFIGURE=1 ;;
+    --configure)    FORCE_CONFIGURE=1 ;;
+    *) echo "未知参数: $arg（支持 --project / --trae / --claude / --non-interactive / --yes / --json / --no-configure / --configure）" >&2; exit 2 ;;
   esac
 done
 
@@ -77,8 +88,23 @@ install_one() {  # install_one <dest>
   if is_same "$SRC_DIR" "$1"; then
     echo "[源即目标] 跳过复制: $1"
   else
+    # 重装/升级前把本机数据挪开，装完原样移回——绝不抹掉 config.yml / sql/ / docs/
+    BK=$(mktemp -d 2>/dev/null || mktemp -d -t hivesskill)
+    HAD_BK=0
+    for item in config.yml sql docs; do
+      if [ -e "$1/$item" ]; then
+        mv "$1/$item" "$BK/" && HAD_BK=1
+      fi
+    done
     safe_rmtree "$1"
     copy_tree "$SRC_DIR" "$1"
+    if [ "$HAD_BK" -eq 1 ]; then
+      for item in config.yml sql docs; do
+        [ -e "$BK/$item" ] && mv "$BK/$item" "$1/"
+      done
+      echo "[已保留本机数据] config.yml / sql/ / docs/（若存在）"
+    fi
+    rmdir "$BK" 2>/dev/null
     echo "[已安装] $1"
   fi
   chmod +x "$1/scripts/"*.py 2>/dev/null
@@ -117,34 +143,74 @@ if [ "$DO_CLAUDE" -eq 1 ]; then
 fi
 
 # ---------------------------------------------------------------- 配置检测
-# 默认（交互模式）: 打印 Agent 也可直接照做的「动作清单」（具体命令）。
-# --non-interactive / --yes / --json: 调 check_config.py（默认 JSON），
+# 默认（交互模式 + TTY）: 缺配置时直接进入 setup_config.py 交互向导，当场问完写好。
+# 交互模式但非 TTY（脚本/管道/Agent 子进程）: 打印 Agent 也可照做的「动作清单」，绝不挂起。
+# --non-interactive / --yes / --json: 调 check_config.py（JSON），
 #   用 ---BEGIN CONFIG JSON--- / ---END CONFIG JSON--- 包起来，Agent 按这两个标记截取。
+
+print_action_list() {
+  echo ""
+  echo "=== 下一步动作（按顺序执行，Agent 可直接照做） ==="
+  echo "  1. cp $DETECT_DIR/config.example.yml $DETECT_DIR/config.yml"
+  echo "  2. 询问用户的 Hive 连接信息：host / port(默认 10000) / username / password / database(默认 default) / auth(默认 LDAP)"
+  echo "     （不要猜，不要用默认值；密码只写本地 config.yml，权限 600，不入库）"
+  echo "  3. 把上述值写入 $DETECT_DIR/config.yml 的 hive: 段"
+  echo "  4. chmod 600 $DETECT_DIR/config.yml"
+  echo "  5. python3 \"$DETECT_DIR/scripts/check_config.py\" --skill-dir \"$DETECT_DIR\" --human"
+  echo ""
+  echo "（也可在终端直接跑向导: python3 \"$DETECT_DIR/scripts/setup_config.py\"）"
+  echo "（Agent 模式可改用: sh install.sh --non-interactive  或  check_config.py --json 拿机器可读状态）"
+}
+
 if [ "$JSON_MODE" -eq 1 ]; then
   echo "---BEGIN CONFIG JSON---"
   python3 "$DETECT_DIR/scripts/check_config.py" --skill-dir "$DETECT_DIR" --json
   echo "---END CONFIG JSON---"
-else
+  exit 0
+fi
+
+echo ""
+echo "=== 配置检测 ==="
+if [ ! -f "$DETECT_DIR/scripts/check_config.py" ]; then
+  echo "[警告] $DETECT_DIR/scripts/check_config.py 不存在，跳过配置检测" >&2
+  exit 0
+fi
+
+python3 "$DETECT_DIR/scripts/check_config.py" --skill-dir "$DETECT_DIR" --human
+RC=$?
+
+# 已就绪且未要求重配 → 结束
+if [ "$RC" -eq 0 ] && [ "$FORCE_CONFIGURE" -eq 0 ]; then
+  exit 0
+fi
+
+# 显式跳过向导
+if [ "$NO_CONFIGURE" -eq 1 ]; then
+  [ "$RC" -ne 0 ] && print_action_list
+  exit 0
+fi
+
+# 交互式 TTY → 进入向导（当场逐项提问、写 config.yml、chmod 600、复验）
+if [ -t 0 ] && [ -f "$DETECT_DIR/scripts/setup_config.py" ]; then
   echo ""
-  echo "=== 配置检测 ==="
-  if [ -f "$DETECT_DIR/scripts/check_config.py" ]; then
-    python3 "$DETECT_DIR/scripts/check_config.py" --skill-dir "$DETECT_DIR" --human
-    RC=$?
-    if [ "$RC" -ne 0 ]; then
-      echo ""
-      echo "=== 下一步动作（按顺序执行，Agent 可直接照做） ==="
-      echo "  1. cp $DETECT_DIR/config.example.yml $DETECT_DIR/config.yml"
-      echo "  2. 询问用户的 Hive 连接信息：host / port(默认 10000) / username / password / database(默认 default) / auth(默认 LDAP)"
-      echo "     （不要猜，不要用默认值；密码只写本地 config.yml，权限 600，不入库）"
-      echo "  3. 把上述值写入 $DETECT_DIR/config.yml 的 hive: 段"
-      echo "  4. chmod 600 $DETECT_DIR/config.yml"
-      echo "  5. python3 \"$DETECT_DIR/scripts/check_config.py\" --skill-dir \"$DETECT_DIR\" --human"
-      echo ""
-      echo "（Agent 模式可改用: sh install.sh --non-interactive  或  check_config.py --json 拿机器可读状态）"
-    fi
-  else
-    echo "[警告] $DETECT_DIR/scripts/check_config.py 不存在，跳过配置检测" >&2
+  echo "=== 进入交互式配置向导 ==="
+  WIZ_ARGS="--skill-dir $DETECT_DIR"
+  [ "$FORCE_CONFIGURE" -eq 1 ] && WIZ_ARGS="$WIZ_ARGS --force"
+  # shellcheck disable=SC2086
+  python3 "$DETECT_DIR/scripts/setup_config.py" $WIZ_ARGS
+  WIZ_RC=$?
+  # 向导放弃(5)/未完成(3) → 仍给出手动动作清单兜底
+  if [ "$WIZ_RC" -ne 0 ] && [ "$RC" -ne 0 ]; then
+    print_action_list
   fi
+  exit 0
+fi
+
+# 非 TTY（被管道/脚本/Agent 调起）→ 不挂起，给动作清单
+if [ "$RC" -ne 0 ]; then
+  echo ""
+  echo "[提示] 当前非交互式终端，无法弹配置向导。"
+  print_action_list
 fi
 
 exit 0

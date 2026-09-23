@@ -27,8 +27,15 @@ sh install.sh                 # 自动检测 trae-cn / claude，装到 global
 
 **Agent 一键安装**：调用 `sh install.sh --non-interactive`，末尾会输出一段
 JSON（用 `---BEGIN CONFIG JSON---` / `---END CONFIG JSON---` 标记包起来），Agent 按这两个标记截取
-即可拿到 `ready / missing / next_actions`，无需解析自由文本。完整 Agent 工作流见
+即可拿到 `ready / missing / next_actions`，无需解析自由文本。Agent 必须在**同一轮对话内**继续：
+按 `next_actions` 向用户问齐 host/username/password，写好 `config.yml`（chmod 600）并复验到
+`ready=true`，不能用"首次使用前请自行配置"收尾。完整 Agent 工作流见
 [SKILL.md 的「Agent 一键安装与配置引导」节](SKILL.md#agent-一键安装与配置引导)。
+
+**真人终端安装**：直接 `sh install.sh`，装完若配置缺失会**自动进入交互式向导**
+（`scripts/setup_config.py`），逐项提问 host / port / 账号 / 密码（无回显）/ 库 / 认证方式，
+写完自动 chmod 600 并复验。相关开关：`--no-configure`（跳过向导）、`--configure`（强制重配）。
+非 TTY 环境（脚本/管道/Agent 子进程）不会挂起，自动退化为打印动作清单。
 
 ### 依赖
 
@@ -38,7 +45,13 @@ pip install -r requirements.txt   # PyYAML + pyhive + thrift + sasl + thrift_sas
 
 ## 配置（首次使用）
 
-复制配置模板并填入自己的 Hive 连接信息：
+**交互式向导（推荐）**：在终端逐项填写，写完自动 chmod 600 并验证：
+
+```bash
+python3 scripts/setup_config.py        # 已就绪时可加 --force 强制重配
+```
+
+或手动复制配置模板并填入自己的 Hive 连接信息：
 
 ```bash
 cp config.example.yml config.yml
