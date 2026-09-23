@@ -31,17 +31,12 @@ import time
 # ---------------------------------------------------------------------------
 
 def skill_dir():
-    """本技能根目录（scripts/ 的上一级）。
+    """本技能根目录（scripts/ 的上一级，即仓库根）。
 
     用 realpath 而非 abspath：本技能可能通过 ~/.claude/skills/ 下的 symlink 被调用，
-    abspath 不解析软链，会让下面的 project_root() 上溯到错误的目录。
+    abspath 不解析软链，会让配置/归档路径解析到错误的目录。
     """
     return os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-
-
-def project_root():
-    """仓库根（技能目录本身；独立仓库后 scripts/ 的上一级即仓库根）。"""
-    return skill_dir()
 
 
 def sql_archive_dir():
@@ -54,20 +49,16 @@ def sql_archive_dir():
 # ---------------------------------------------------------------------------
 
 def find_config_path(explicit):
-    """按优先级找 config.yml：显式 --config > 环境变量 > 技能目录 > 项目根 > ~/.hive/。"""
-    candidates = []
-    if explicit:
-        candidates.append(explicit)
-    if os.environ.get("HIVE_CONFIG"):
-        candidates.append(os.environ["HIVE_CONFIG"])
+    """按优先级找 config.yml：显式 --config > 环境变量 > 技能目录 > ~/.hive/。"""
     sk = skill_dir()
-    candidates.append(os.path.join(sk, "config.yml"))
-    candidates.append(os.path.join(sk, "config.yaml"))
-    root = project_root()
-    candidates.append(os.path.join(root, "config.yml"))
-    candidates.append(os.path.join(root, "config.yaml"))
-    candidates.append(os.path.expanduser("~/.hive/config.yml"))
-    candidates.append(os.path.expanduser("~/.hive/config.yaml"))
+    candidates = [
+        explicit,
+        os.environ.get("HIVE_CONFIG"),
+        os.path.join(sk, "config.yml"),
+        os.path.join(sk, "config.yaml"),
+        os.path.expanduser("~/.hive/config.yml"),
+        os.path.expanduser("~/.hive/config.yaml"),
+    ]
     for p in candidates:
         if p and os.path.isfile(p):
             return p
@@ -399,7 +390,7 @@ def default_out_path(sql_file, timestamp):
     来源名里已经带时间戳（归档文件都带）的话先剥掉，再贴上本次运行的时间戳，
     避免出现 name_旧时间戳_新时间戳.csv 这种叠加。
     """
-    out_dir = os.path.join(project_root(), "docs", "hive-sql-to-csv")
+    out_dir = os.path.join(skill_dir(), "docs", "hive-sql-to-csv")
     if sql_file:
         base = sanitize_name(os.path.splitext(os.path.basename(sql_file))[0])
         base = TS_SUFFIX_RE.sub("", base) or "hive_result"

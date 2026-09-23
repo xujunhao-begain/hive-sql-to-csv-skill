@@ -31,8 +31,8 @@ PLACEHOLDER_HOST = check_config.PLACEHOLDER_HOST
 PLACEHOLDER_PASSWORD = check_config.PLACEHOLDER_PASSWORD
 
 
-def ask(prompt, default=None, required=True, secret=False):
-    """通用提问。secret=True 时无回显；空输入且有 default 取 default。"""
+def ask(prompt, default=None, secret=False):
+    """通用提问。secret=True 时无回显；空输入且有 default 取 default，否则必填重问。"""
     suffix = f" [{default}]" if default is not None else ""
     while True:
         if secret:
@@ -41,7 +41,7 @@ def ask(prompt, default=None, required=True, secret=False):
             val = input(f"{prompt}{suffix}: ").strip()
         if not val and default is not None:
             return str(default)
-        if val or not required:
+        if val:
             return val
         print("  ! 该项必填，请重新输入。")
 
@@ -145,11 +145,10 @@ def main():
 
     if already_ready and not args.force:
         print(f"[已就绪] {cfg_path} 已配置完成。")
-        if ask_yes_no("要重新配置并覆盖吗？", default_no=True):
-            args.force = True
-        else:
+        if not ask_yes_no("要重新配置并覆盖吗？", default_no=True):
             print("保持现有配置，退出。")
             return 0
+        # 回答“是” → 继续往下走，以现有配置为默认值重走一遍向导
 
     # 读现有值做默认值（config.yml 存在但不完整 / --force 时）
     existing = {}

@@ -165,7 +165,7 @@ skill 就绪后，按下面的"前置：连接配置"和"怎么做"两节正常�
   该文件含真实凭证，权限已设为 600，**不要提交到版本库**。
 - **其余项**：`host / port / username / database / auth`。
   查找顺序：`--config` 指定的路径 → 环境变量 `HIVE_CONFIG` → **本技能目录**下的
-  `config.yml` → 仓库根 `config.yml` → `~/.hive/config.yml`。
+  `config.yml` → `~/.hive/config.yml`（同名 `.yaml` 也认）。
 
 命令行参数（`--host/--user/--password/...`）可覆盖任意字段，优先级 **CLI > config.yml**。
 除密码外的字段仍支持 `HIVE_HOST/HIVE_USER/...` 环境变量覆盖；**密码只认 config.yml 和 `--password`**。

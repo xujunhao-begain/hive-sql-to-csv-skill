@@ -1,17 +1,31 @@
-# ---- 凭证：不入库 ----
+# ---- 凭证与本机配置：不入库（config.example.yml 是模板，正常提交）----
 config.yml
+.env
+.env.local
+.env.*.local
 
-# ---- 配置模板可以提交 ----
-!config.example.yml
-
-# ---- SQL 归档目录（含本机历史业务 SQL，本地准备）----
+# ---- SQL 归档与导出产物（含本机业务 SQL / CSV，本地生成）----
 sql/
-
-# ---- 本地产物（CSV）----
 docs/
 
-# ---- 杂项 ----
+# ---- Python ----
 __pycache__/
 *.py[cod]
-.DS_Store
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# ---- 日志与临时备份 ----
+*.log
 *.bak
+*~
+
+# ---- 编辑器 / 系统 ----
+.idea/
+.vscode/
+*.swp
+.DS_Store

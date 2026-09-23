@@ -23,11 +23,13 @@
 #   入口均为 SKILL.md，按 description 自动路由触发。
 #
 # copy_tree 用 tar 排除 .git / __pycache__ / config.yml / sql（归档的本机 SQL，含真实业务 SQL）/
-#   docs（产物 CSV）——这些是不入库的本机数据，安装时不带进 skill 目录，由 check_config.py 引导准备。
+#   docs（产物 CSV）——防止【源开发仓库】里的本机数据随安装泄漏进 skill 目录。
+#   目标目录里已有的 config.yml / sql/ / docs/ 会在重装/升级前挪开、装完原样移回，不丢失。
 #
-# 装完自动跑一次 check_config.py 检测配置状态（退出码 0=就绪 2=缺 config.yml 3=不完整）。
-# 默认（交互模式）输出 Agent 也可照做的"动作清单"（具体命令）；
-# --non-interactive / --yes / --json 则输出 JSON 给 Agent 程序化消费。
+# 装完自动跑一次 check_config.py 检测配置状态（退出码 0=就绪 2=缺 config.yml 3=不完整）：
+# - 交互式 TTY 且缺配置：自动进入 setup_config.py 向导，当场问完写好（chmod 600）并复验；
+# - 非 TTY（脚本/管道/Agent 子进程）：打印 Agent 可照做的"动作清单"，不挂起；
+# - --non-interactive / --yes / --json：输出 JSON（---BEGIN/END CONFIG JSON---）给 Agent 消费。
 
 SRC_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 NAME="hive-sql-to-csv-skill"

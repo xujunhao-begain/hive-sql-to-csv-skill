@@ -9,7 +9,7 @@
 ### 一键安装（推荐）
 
 ```bash
-git clone <repo-url> hive-sql-to-csv-skill
+git clone https://github.com/xujunhao-begain/hive-sql-to-csv-skill.git
 cd hive-sql-to-csv-skill
 sh install.sh                 # 自动检测 trae-cn / claude，装到 global
 # 或: sh install.sh --project          # 装到当前项目（<项目>/.trae/skills/ 与 <项目>/.claude/skills/）
@@ -23,7 +23,9 @@ sh install.sh                 # 自动检测 trae-cn / claude，装到 global
 - Trae-CN：`~/.trae-cn/skills/hive-sql-to-csv-skill/`（项目级为 `<项目>/.trae/skills/`）
 - Claude Code：`~/.claude/skills/hive-sql-to-csv-skill/`（项目级为 `<项目>/.claude/skills/`）
 
-安装时用 tar 排除 `config.yml`、`sql/`（归档的本机 SQL，含真实业务 SQL）、`docs/`（产物 CSV）——这些是本机数据，不会带进 skill 目录。装完自动跑 `check_config.py` 检测配置状态。
+`config.yml`（含 LDAP 凭据）、`sql/`（本机归档 SQL）、`docs/`（导出的 CSV）都是本机数据：
+安装包不带入它们；已装目录里的这些内容在**重装/升级时会原样保留**，不会被覆盖。
+装完自动跑 `check_config.py` 检测配置状态。
 
 **Agent 一键安装**：调用 `sh install.sh --non-interactive`，末尾会输出一段
 JSON（用 `---BEGIN CONFIG JSON---` / `---END CONFIG JSON---` 标记包起来），Agent 按这两个标记截取
@@ -65,15 +67,13 @@ chmod 600 config.yml
 - `database`：默认库（默认 `default`）
 - `auth`：认证方式，默认 `LDAP`
 
-完成配置后用 `check_config.py` 验证：
+完成配置后用 `check_config.py` 验证（`install.sh` 装完也会自动跑一次）：
 
 ```bash
 python3 scripts/check_config.py            # 默认输出 JSON（Agent 友好）
 python3 scripts/check_config.py --human    # 人本可读文本
 # 退出码 0 = 就绪，2 = 缺 config.yml，3 = 配置不完整或缺依赖
 ```
-
-`install.sh` 装完会自动跑一次，按提示补齐即可。
 
 ## 用法
 
