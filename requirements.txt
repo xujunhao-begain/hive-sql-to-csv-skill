@@ -1,0 +1,5 @@
+PyYAML>=6.0
+pyhive>=0.7.0
+thrift>=0.16.0
+sasl>=0.3.1
+thrift_sasl>=0.4.3

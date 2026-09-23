@@ -1,0 +1,7 @@
+hive:
+  host: "your-hive-server.example.com"
+  port: 10000
+  username: "your_ldap_user"
+  password: "YOUR_LDAP_PASSWORD"
+  database: "default"
+  auth: "LDAP"
