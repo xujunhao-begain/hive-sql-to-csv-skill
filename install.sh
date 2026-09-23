@@ -6,6 +6,9 @@
 #   sh install.sh --project     # 装到当前项目（<项目>/.trae/skills/ 与 <项目>/.claude/skills/）
 #   sh install.sh --trae        # 只装 Trae-CN（global）
 #   sh install.sh --claude      # 只装 Claude Code（global）
+#   sh install.sh --non-interactive   # Agent 模式：装完跑 check_config.py --json，最后输出一段 JSON 给 Agent 消费
+#   sh install.sh --yes        # 同 --non-interactive
+#   sh install.sh --json       # 同 --non-interactive（显式指定 JSON 输出）
 #
 # 安装布局:
 #   Trae-CN     → 整目录装入 ~/.trae-cn/skills/hive-sql-to-csv-skill/（项目级为 <项目>/.trae/skills/）
@@ -15,19 +18,23 @@
 # copy_tree 用 tar 排除 .git / __pycache__ / config.yml / sql（归档的本机 SQL，含真实业务 SQL）/
 #   docs（产物 CSV）——这些是不入库的本机数据，安装时不带进 skill 目录，由 check_config.py 引导准备。
 #
-# 装完自动跑一次 check_config.py 检测配置状态（退出码 2 = 缺 config.yml，3 = 配置不完整）。
+# 装完自动跑一次 check_config.py 检测配置状态（退出码 0=就绪 2=缺 config.yml 3=不完整）。
+# 默认（交互模式）输出 Agent 也可照做的"动作清单"（具体命令）；
+# --non-interactive / --yes / --json 则输出 JSON 给 Agent 程序化消费。
 
 SRC_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 NAME="hive-sql-to-csv-skill"
 ONLY=""
 MODE="global"
+JSON_MODE=0
 
 for arg in "$@"; do
   case "$arg" in
     --project) MODE="project" ;;
     --trae)    ONLY="trae" ;;
     --claude)  ONLY="claude" ;;
-    *) echo "未知参数: $arg（支持 --project / --trae / --claude）" >&2; exit 2 ;;
+    --non-interactive|--yes|--json) JSON_MODE=1 ;;
+    *) echo "未知参数: $arg（支持 --project / --trae / --claude / --non-interactive / --yes / --json）" >&2; exit 2 ;;
   esac
 done
 
@@ -94,8 +101,8 @@ else
 fi
 
 if [ "$DO_TRAE" -eq 0 ] && [ "$DO_CLAUDE" -eq 0 ]; then
-  echo "未检测到 Trae-CN（$HOME/.trae-cn）或 Claude Code（$HOME/.claude）环境。"
-  echo "请显式指定: sh install.sh --trae 或 sh install.sh --claude"
+  echo "未检测到 Trae-CN（$HOME/.trae-cn）或 Claude Code（$HOME/.claude）环境。" >&2
+  echo "请显式指定: sh install.sh --trae 或 sh install.sh --claude" >&2
   exit 1
 fi
 
@@ -110,22 +117,33 @@ if [ "$DO_CLAUDE" -eq 1 ]; then
 fi
 
 # ---------------------------------------------------------------- 配置检测
-echo ""
-echo "=== 配置检测 ==="
-if [ -n "$DETECT_DIR" ]; then
-  if [ -x "$DETECT_DIR/scripts/check_config.py" ] || \
-     [ -f "$DETECT_DIR/scripts/check_config.py" ]; then
-    python3 "$DETECT_DIR/scripts/check_config.py" --skill-dir "$DETECT_DIR"
+# 默认（交互模式）: 打印 Agent 也可直接照做的「动作清单」（具体命令）。
+# --non-interactive / --yes / --json: 调 check_config.py（默认 JSON），
+#   用 ---BEGIN CONFIG JSON--- / ---END CONFIG JSON--- 包起来，Agent 按这两个标记截取。
+if [ "$JSON_MODE" -eq 1 ]; then
+  echo "---BEGIN CONFIG JSON---"
+  python3 "$DETECT_DIR/scripts/check_config.py" --skill-dir "$DETECT_DIR" --json
+  echo "---END CONFIG JSON---"
+else
+  echo ""
+  echo "=== 配置检测 ==="
+  if [ -f "$DETECT_DIR/scripts/check_config.py" ]; then
+    python3 "$DETECT_DIR/scripts/check_config.py" --skill-dir "$DETECT_DIR" --human
     RC=$?
-    if [ "$RC" -eq 2 ] || [ "$RC" -eq 3 ]; then
+    if [ "$RC" -ne 0 ]; then
       echo ""
-      echo "需要首次配置："
+      echo "=== 下一步动作（按顺序执行，Agent 可直接照做） ==="
       echo "  1. cp $DETECT_DIR/config.example.yml $DETECT_DIR/config.yml"
-      echo "  2. 在 config.yml 填入 Hive 连接信息（host/port/username/password/auth）"
-      echo "  3. 重跑: python3 \"$DETECT_DIR/scripts/check_config.py\" --skill-dir \"$DETECT_DIR\""
+      echo "  2. 询问用户的 Hive 连接信息：host / port(默认 10000) / username / password / database(默认 default) / auth(默认 LDAP)"
+      echo "     （不要猜，不要用默认值；密码只写本地 config.yml，权限 600，不入库）"
+      echo "  3. 把上述值写入 $DETECT_DIR/config.yml 的 hive: 段"
+      echo "  4. chmod 600 $DETECT_DIR/config.yml"
+      echo "  5. python3 \"$DETECT_DIR/scripts/check_config.py\" --skill-dir \"$DETECT_DIR\" --human"
+      echo ""
+      echo "（Agent 模式可改用: sh install.sh --non-interactive  或  check_config.py --json 拿机器可读状态）"
     fi
   else
-    echo "[警告] $DETECT_DIR/scripts/check_config.py 不存在，跳过配置检测"
+    echo "[警告] $DETECT_DIR/scripts/check_config.py 不存在，跳过配置检测" >&2
   fi
 fi
 

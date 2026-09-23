@@ -1,7 +1,7 @@
 ---
 name: hive-sql-to-csv-skill
 description: 在 Hive (HiveServer2) 上执行一段 SQL，把查询结果导出成 CSV 文件。当用户说「在 hive 里跑这个 sql / 执行这段 hive sql / 跑一下这个查询」「把查询结果存成 csv / 导出成 csv / 拉成 csv」「跑一下这个 .sql 文件把结果导出」「连 hive 查一下这张表并保存结果」「把这段 sql 存成文件 / 存下来下次再跑」「我之前存的那个查询再跑一遍」时使用。支持直接传 SQL 字符串、传 .sql 文件路径、传已归档 SQL 的名字、或复杂脚本（先 set 参数 / 建临时表、最后一条 select 出结果）。用户贴来的 SQL 会自动归档成 .sql 文件便于复用和复现。结果用游标流式写盘，百万行以上也不撑内存；CSV 带表头、纯 UTF-8、逗号分隔。连接信息从 config.yml 读取（LDAP 认证）。不负责解析字段血缘（那是 sql-field-lineage），也不负责扫描文件里出现了哪些字段（那是 field-search）。
-version: 1.1.0
+version: 1.2.0
 ---
 
 # hive-sql-to-csv-skill
@@ -16,6 +16,127 @@ SQL 有两种来源，都走同一个脚本：
 - **从 `.sql` 文件执行**——用户给文件路径，或只给一个已归档 SQL 的名字。
 - **用户直接贴 SQL**——脚本先把它归档成 `.sql` 文件（默认行为），再执行；
   这样每份 CSV 都有一份对应的、可复现可复用的 SQL 存档。
+
+## Agent 一键安装与配置引导
+
+当 Agent（Claude / Trae.cn）被要求"**安装并配置本 skill**"或"先把 hive-sql-to-csv-skill 装上"时，
+按下面 6 步走。整个流程**对 Agent 是自洽的**——不需要再去翻文档，也不需要用户手把手指导。
+
+### 1. 一键安装到目标环境
+
+`<REPO>` 是仓库克隆/解压后的根目录（含 `install.sh`、`SKILL.md`、`scripts/`）。
+
+```bash
+sh <REPO>/install.sh                       # 自动检测 trae-cn / claude，装到 global；都检测到就都装
+# 或显式指定其一：
+sh <REPO>/install.sh --trae                 # 只装 Trae-CN（global）
+sh <REPO>/install.sh --claude               # 只装 Claude Code（global）
+sh <REPO>/install.sh --project              # 装到当前项目（<项目>/.trae/skills 与 <项目>/.claude/skills）
+```
+
+**Agent 推荐**加 `--non-interactive`（等价于 `--yes` / `--json`）：装完不打印人类步骤提示，
+改为在末尾输出一段 JSON（用 `---BEGIN CONFIG JSON---` / `---END CONFIG JSON---` 包起来），
+Agent 按这两个标记截取即可。
+
+```bash
+sh <REPO>/install.sh --non-interactive      # Agent 模式：装完输出 JSON
+```
+
+安装位置（任选其一会被装到）：
+
+- Trae-CN：`~/.trae-cn/skills/hive-sql-to-csv-skill/`（项目级为 `<项目>/.trae/skills/`）
+- Claude Code：`~/.claude/skills/hive-sql-to-csv-skill/`（项目级为 `<项目>/.claude/skills/`）
+
+安装时**不**会带 `config.yml`、`sql/`、`docs/`（这些是本机数据/凭据，不入库也不带入 skill 目录）。
+
+### 2. 跑 check_config.py 拿到机器可读状态
+
+装完之后（或在已装好的 skill 目录上单独跑一次）调用 check_config.py，**默认输出就是 JSON**：
+
+```bash
+SK="<上一步装到的目录，如 ~/.trae-cn/skills/hive-sql-to-csv-skill>"
+python3 "$SK/scripts/check_config.py" --skill-dir "$SK"           # 默认 JSON
+# 也可显式:
+python3 "$SK/scripts/check_config.py" --skill-dir "$SK" --json
+```
+
+输出形如：
+
+```json
+{
+  "ready": false,
+  "skill_dir": "/Users/.../.trae-cn/skills/hive-sql-to-csv-skill",
+  "config_path": null,
+  "config_exists": false,
+  "missing": [
+    {"field": "host", "reason": "config.yml 不存在"},
+    {"field": "username", "reason": "config.yml 不存在"},
+    {"field": "password", "reason": "config.yml 不存在"}
+  ],
+  "warnings": [],
+  "next_actions": [
+    {"step": "copy_template", "cmd": "cp <SK>/config.example.yml <SK>/config.yml", "from": "...", "to": "..."},
+    {"step": "ask_user", "fields": ["host","password","username"], "hint": "向用户询问 Hive 连接信息；不要猜，不要用默认值；密码只写本地 config.yml（权限 600，不入库）"},
+    {"step": "write_config", "path": "<SK>/config.yml", "note": "按 config.example.yml 的 hive: 段结构填入用户提供的值（host/port/username/password/database/auth）"},
+    {"step": "chmod", "cmd": "chmod 600 <SK>/config.yml", "path": "...", "mode": "600"},
+    {"step": "verify", "cmd": "python3 <SK>/scripts/check_config.py --skill-dir <SK>", "expect": "ready=true 即装好；仍 false 则按 missing 继续追问用户"}
+  ]
+}
+```
+
+退出码：`0` = 就绪；`2` = 缺 config.yml；`3` = 配置不完整或缺依赖。
+
+- `ready=true` → **直接跳到第 6 步汇报，不用再做任何配置**。
+- `ready=false` → 按 `next_actions` 顺序往下走。
+
+### 3. 按 next_actions 执行；缺什么就问用户要什么
+
+- `step: copy_template` → 用 Shell 跑 `cmd` 里的 `cp` 命令把模板复制成 `config.yml`。
+- `step: install_dep` → `pip install pyyaml`（仅当 PyYAML 缺失时出现）。
+- `step: ask_user` → **必须**问用户要 `fields` 列出的字段，**不要猜、不要用默认值**。
+  - `host`：HiveServer2 地址。
+  - `port`：端口，默认 10000（用户没特殊说就用这个）。
+  - `username`：LDAP 账号。
+  - `password`：LDAP 密码——**强调**只写本地 `config.yml`（权限 600、不入库），不会回显、不会上传。
+  - `auth`：默认 `LDAP`，没特殊说就保留。
+  - `database`：默认 `default`，没特殊说就保留。
+- `step: write_config` → 用 Write/Edit 工具把 `path` 指向的 `config.yml` 改好（结构见 `config.example.yml` 的 `hive:` 段）。
+- `step: chmod` → 用 Shell 跑 `cmd` 锁 600。
+- `step: verify` → 用 Shell 跑 `cmd` 再检测一次；ready=true 即装好，仍 false 把 `missing` 贴回给用户继续补。
+
+### 4. 写 config.yml（用 Write/Edit 工具，结构如下）
+
+```yaml
+hive:
+  host: "<用户给的 HiveServer2 地址>"
+  port: 10000
+  username: "<LDAP 账号>"
+  password: "<LDAP 密码>"
+  database: "default"
+  auth: "LDAP"
+```
+
+### 5. 锁权限 + 复跑 check_config 验证
+
+```bash
+chmod 600 "$SK/config.yml"
+python3 "$SK/scripts/check_config.py" --skill-dir "$SK" --json
+```
+
+- `ready=true` → 配置完成。
+- `ready=false` → 把新的 `missing` 项贴回给用户继续补齐，回到第 3 步。
+
+### 6. 汇报
+
+向用户精简汇报：装到哪个目录（trae-cn / claude / 项目级）、是否就绪、缺啥。
+**不要**在对话里回显密码或完整凭据——只说"已写入 config.yml（权限 600）"。
+
+### 7. 接下来
+
+skill 就绪后，按下面的"前置：连接配置"和"怎么做"两节正常使用即可——
+跑 SQL、落 CSV、汇报行数 / 列 / 耗时 / 路径。
+
+---
 
 ## 前置：连接配置
 
