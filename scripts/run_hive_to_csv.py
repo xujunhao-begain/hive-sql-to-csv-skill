@@ -394,7 +394,7 @@ def run(conn, statements, out_path, batch_size, verbose):
 # ---------------------------------------------------------------------------
 
 def default_out_path(sql_file, timestamp):
-    """默认输出到 my_skills/docs/hive-sql-to-csv/ 下，按来源名 + 时间戳命名。
+    """默认输出到 docs/hive-sql-to-csv/ 下，按来源名 + 时间戳命名。
 
     来源名里已经带时间戳（归档文件都带）的话先剥掉，再贴上本次运行的时间戳，
     避免出现 name_旧时间戳_新时间戳.csv 这种叠加。
@@ -419,7 +419,7 @@ def main():
     ap.add_argument("--save-only", action="store_true",
                     help="只把 SQL 存成 .sql 文件，不连 Hive 执行")
     ap.add_argument("--list-sql", action="store_true", help="列出 <技能目录>/sql/ 里已归档的 .sql 并退出")
-    ap.add_argument("--out", help="CSV 输出路径（默认写到 my_skills/docs/hive-sql-to-csv/ 带时间戳）")
+    ap.add_argument("--out", help="CSV 输出路径（默认写到 docs/hive-sql-to-csv/ 带时间戳）")
     ap.add_argument("--config", help="config.yml 路径（默认自动查找）")
     ap.add_argument("--host")
     ap.add_argument("--port", type=int)
